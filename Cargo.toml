@@ -1,0 +1,26 @@
+[package]
+name = "stm32-serprog"
+version = "0.1.0"
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[profile.release]
+opt-level = 'z' # turn on maximum optimizations. We only have 64kB
+lto = true      # Link-time-optimizations for further size reduction
+
+[dependencies]
+cortex-m = "^0.6.7"      # Access to the generic ARM peripherals
+cortex-m-rt = "^0.6.15"  # Startup code for the ARM Core
+embedded-hal = "^0.2.6"  # Access to generic embedded functions (`set_high`)
+panic-halt = "^0.2.0"    # Panic handler
+usbd-serial = "^0.1.1"
+usb-device = "^0.2.8"
+snafu = { version = "^0.6.10", default-features = false }
+
+# Access to the stm32f103 HAL.
+[dependencies.stm32f1xx-hal]
+# Bluepill contains a 64kB flash variant which is called "medium density"
+features = ["stm32f103", "rt", "medium", "stm32-usbd"]
+version = "^0.7.0"
+
