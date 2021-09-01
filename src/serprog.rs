@@ -26,10 +26,6 @@ pub enum ReturnType {
     Nak = 0x15,
 }
 
-pub enum ReturnPacket {
-    Nop { test: u8 },
-}
-
 #[derive(Clone, Copy, Debug)]
 #[repr(u8)]
 pub enum OpCode {
