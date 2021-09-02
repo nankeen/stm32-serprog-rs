@@ -2,12 +2,14 @@
 #![no_std]
 #![no_main]
 
+mod data_utils;
 mod serprog;
 
 use cortex_m::asm::delay;
 use cortex_m_rt::entry; // The runtime
+use data_utils::OpCode;
 use embedded_hal::digital::v2::OutputPin;
-use serprog::{OpCode, SerProg};
+use serprog::SerProg;
 use stm32f1xx_hal::usb::{Peripheral, UsbBus};
 use stm32f1xx_hal::{pac, prelude::*}; // STM32F1 specific functions
 use usb_device::prelude::{UsbDeviceBuilder, UsbVidPid};
@@ -66,10 +68,16 @@ fn main() -> ! {
         .build();
 
     let mut serprog = SerProg::new(serial, usb_dev);
+    let mut response_buffer = [0u8; data_utils::ResponsePacket::MAX_SIZE];
 
     loop {
         if let Some(cmd) = OpCode::from_u8(serprog.read_u8()) {
-            serprog.handle_command(cmd).unwrap_or_default();
+            if let Ok(res) = serprog.handle_command(cmd) {
+                if let Ok(n) = res.to_bytes(&mut response_buffer) {
+                    serprog.send_response(&response_buffer[..n]);
+                }
+                //if let
+            }
         }
         /*
         if !usb_dev.poll(&mut [&mut serprog.serial]) {

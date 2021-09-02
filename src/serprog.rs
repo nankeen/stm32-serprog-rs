@@ -1,73 +1,17 @@
+use crate::data_utils::{
+    OpCode, ResponsePacket, ResponseType, CMD_MAP, I_FACE_VERSION, PGM_NAME, SUPPORTED_BUS,
+};
 use embedded_hal::serial::Read;
 use snafu::Snafu;
 use usb_device::bus::UsbBus;
 use usb_device::prelude::UsbDevice;
 use usbd_serial::SerialPort;
 
-const I_FACE_VERSION: u16 = 0x01;
-const PGM_NAME: &str = "stm32-vserprog";
-// Support SPI only
-const SUPPORTED_BUS: u8 = 1 << 3;
-const CMD_MAP: u32 = 1 << OpCode::Nop as u8
-    | 1 << OpCode::QIface as u8
-    | 1 << OpCode::QCmdMap as u8
-    | 1 << OpCode::QPgmName as u8
-    | 1 << OpCode::QSerBuf as u8
-    | 1 << OpCode::QBusType as u8
-    | 1 << OpCode::SyncNop as u8
-    | 1 << OpCode::OSpiOp as u8
-    | 1 << OpCode::SBusType as u8
-    | 1 << OpCode::SSpiFreq as u8
-    | 1 << OpCode::SPinState as u8;
-
-#[repr(u8)]
-pub enum ReturnType {
-    Ack = 0x06,
-    Nak = 0x15,
-}
-
-#[derive(Clone, Copy, Debug)]
-#[repr(u8)]
-pub enum OpCode {
-    Nop = 0x00,
-    QIface = 0x01,
-    QCmdMap = 0x02,
-    QPgmName = 0x03,
-    QSerBuf = 0x04,
-    QBusType = 0x05,
-    _QChipSize = 0x06,
-    _QOpBuf = 0x07,
-    _QWrnMaxLen = 0x08,
-    _RByte = 0x09,
-    _RNBytes = 0x0A,
-    _OInit = 0x0B,
-    _OWriteB = 0x0C,
-    _OWriteN = 0x0D,
-    _ODelay = 0x0E,
-    _OExec = 0x0F,
-    SyncNop = 0x10,
-    _QRdnMaxLen = 0x11,
-    SBusType = 0x12,
-    OSpiOp = 0x13,
-    SSpiFreq = 0x14,
-    SPinState = 0x15,
-}
-
-impl OpCode {
-    pub fn from_u8(n: u8) -> Option<OpCode> {
-        if n <= 0x15 {
-            Some(unsafe { core::mem::transmute(n) })
-        } else {
-            None
-        }
-    }
-}
-
 pub(crate) struct SerProg<'a, B>
 where
     B: UsbBus,
 {
-    serial: SerialPort<'a, B>,
+    pub serial: SerialPort<'a, B>,
     usb_dev: UsbDevice<'a, B>,
 }
 
@@ -108,7 +52,20 @@ where
         val
     }
 
-    pub fn handle_command(&mut self, cmd: OpCode) -> Result<(), SerProgError> {
+    pub fn send_response(&mut self, buf: &[u8]) {
+        let mut write_offset = 0;
+        let count = buf.len();
+        while write_offset < count {
+            match self.serial.write(&buf[write_offset..count]) {
+                Ok(len) if len > 0 => {
+                    write_offset += len;
+                }
+                _ => {}
+            }
+        }
+    }
+
+    pub fn handle_command(&mut self, cmd: OpCode) -> Result<ResponsePacket, SerProgError> {
         match cmd {
             OpCode::Nop => self.handle_nop(),
             OpCode::QIface => self.handle_q_iface(),
@@ -122,88 +79,59 @@ where
         }
     }
 
-    fn handle_nop(&mut self) -> Result<(), SerProgError> {
-        self.serial
-            .write(&[ReturnType::Ack as u8])
-            .map(|_| ())
-            .map_err(|_| SerProgError::WriteFail)
+    fn handle_nop(&mut self) -> Result<ResponsePacket, SerProgError> {
+        Ok(ResponsePacket::Nop)
     }
 
-    fn handle_q_iface(&mut self) -> Result<(), SerProgError> {
-        let ret_packet: [u8; 3] = {
-            let mut ret_packet: [u8; 3] = [0; 3];
-            ret_packet[0] = ReturnType::Ack as u8;
-            ret_packet[1..].copy_from_slice(&I_FACE_VERSION.to_le_bytes());
-            ret_packet
+    fn handle_q_iface(&mut self) -> Result<ResponsePacket, SerProgError> {
+        Ok(ResponsePacket::QIface {
+            iface_version: I_FACE_VERSION,
+        })
+    }
+
+    fn handle_q_cmd_map(&mut self) -> Result<ResponsePacket, SerProgError> {
+        let cmd_map: [u8; 32] = {
+            let mut cmd_map: [u8; 32] = [0; 32];
+            cmd_map.copy_from_slice(&CMD_MAP.to_le_bytes());
+            cmd_map
         };
 
-        self.serial
-            .write(&ret_packet)
-            .map(|_| ())
-            .map_err(|_| SerProgError::WriteFail)
+        Ok(ResponsePacket::QCmdMap { cmd_map })
     }
 
-    fn handle_q_cmd_map(&mut self) -> Result<(), SerProgError> {
-        let ret_packet: [u8; 33] = {
-            let mut ret_packet: [u8; 33] = [0; 33];
-            ret_packet[0] = ReturnType::Ack as u8;
-            ret_packet[1..5].copy_from_slice(&CMD_MAP.to_le_bytes());
-            ret_packet
+    fn handle_q_pgm_name(&mut self) -> Result<ResponsePacket, SerProgError> {
+        let pgm_name: [u8; 16] = {
+            let mut pgm_name: [u8; 16] = [0; 16];
+            pgm_name[0..PGM_NAME.len()].copy_from_slice(PGM_NAME.as_bytes());
+            pgm_name
         };
 
-        self.serial
-            .write(&ret_packet)
-            .map(|_| ())
-            .map_err(|_| SerProgError::WriteFail)
+        Ok(ResponsePacket::QPgmName { pgm_name })
     }
 
-    fn handle_q_pgm_name(&mut self) -> Result<(), SerProgError> {
-        let ret_packet: [u8; 17] = {
-            let mut ret_packet: [u8; 17] = [0; 17];
-            ret_packet[0] = ReturnType::Ack as u8;
-            ret_packet[1..PGM_NAME.len() + 1].copy_from_slice(PGM_NAME.as_bytes());
-            ret_packet
-        };
-
-        self.serial
-            .write(&ret_packet)
-            .map(|_| ())
-            .map_err(|_| SerProgError::WriteFail)
-    }
-
-    fn handle_q_serbuf(&mut self) -> Result<(), SerProgError> {
+    fn handle_q_serbuf(&mut self) -> Result<ResponsePacket, SerProgError> {
         // Pretend to be 64k
-        self.serial
-            .write(&[ReturnType::Ack as u8, 0xff, 0xff])
-            .map(|_| ())
-            .map_err(|_| SerProgError::WriteFail)
+        Ok(ResponsePacket::QSerBuf { size: 0xffff })
     }
 
-    fn handle_q_bus_type(&mut self) -> Result<(), SerProgError> {
-        self.serial
-            .write(&[ReturnType::Ack as u8, SUPPORTED_BUS])
-            .map(|_| ())
-            .map_err(|_| SerProgError::WriteFail)
+    fn handle_q_bus_type(&mut self) -> Result<ResponsePacket, SerProgError> {
+        Ok(ResponsePacket::QBusType {
+            bus_type: SUPPORTED_BUS,
+        })
     }
 
-    fn handle_sync_nop(&mut self) -> Result<(), SerProgError> {
-        self.serial
-            .write(&[ReturnType::Ack as u8, ReturnType::Nak as u8])
-            .map(|_| ())
-            .map_err(|_| SerProgError::WriteFail)
+    fn handle_sync_nop(&mut self) -> Result<ResponsePacket, SerProgError> {
+        Ok(ResponsePacket::SyncNop)
     }
 
-    fn handle_s_bus_type(&mut self) -> Result<(), SerProgError> {
-        let response = if self.read_u8() == SUPPORTED_BUS {
-            ReturnType::Ack
+    fn handle_s_bus_type(&mut self) -> Result<ResponsePacket, SerProgError> {
+        let res = if self.read_u8() == SUPPORTED_BUS {
+            ResponseType::Ack
         } else {
-            ReturnType::Nak
+            ResponseType::Nak
         };
 
-        self.serial
-            .write(&[response as u8])
-            .map(|_| ())
-            .map_err(|_| SerProgError::WriteFail)
+        Ok(ResponsePacket::SBusType { res })
     }
 }
 
