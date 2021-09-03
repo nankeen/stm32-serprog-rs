@@ -70,42 +70,17 @@ fn main() -> ! {
     let mut serprog = SerProg::new(serial, usb_dev);
     let mut response_buffer = [0u8; data_utils::ResponsePacket::MAX_SIZE];
 
+    // Loop to handle commands
     loop {
+        // Read opcode from USB serial
         if let Some(cmd) = OpCode::from_u8(serprog.read_u8()) {
+            // Pass it to the command handler
             if let Ok(res) = serprog.handle_command(cmd) {
+                // Serialize and respond
                 if let Ok(n) = res.to_bytes(&mut response_buffer) {
                     serprog.send_response(&response_buffer[..n]);
                 }
-                //if let
             }
         }
-        /*
-        if !usb_dev.poll(&mut [&mut serprog.serial]) {
-            continue;
-        }
-
-        let mut buf = [0u8; 1];
-
-        match serial.read(&mut buf) {
-            Ok(count) if count > 0 => {
-                // Echo back in upper case for c in buf[0..count].iter_mut() {
-                    if 0x61 <= *c && *c <= 0x7a {
-                        *c &= !0x20;
-                    }
-                }
-
-                let mut write_offset = 0;
-                while write_offset < count {
-                    match serial.write(&buf[write_offset..count]) {
-                        Ok(len) if len > 0 => {
-                            write_offset += len;
-                        }
-                        _ => {}
-                    }
-                }
-            }
-            _ => {}
-        }
-        */
     }
 }

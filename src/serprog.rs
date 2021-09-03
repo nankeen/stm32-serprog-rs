@@ -75,6 +75,7 @@ where
             OpCode::QBusType => self.handle_q_bus_type(),
             OpCode::SyncNop => self.handle_sync_nop(),
             OpCode::SBusType => self.handle_s_bus_type(),
+            OpCode::OSpiOp => self.handle_o_spi_op(),
             opcode => Err(SerProgError::NotImplemented { opcode }),
         }
     }
@@ -132,6 +133,11 @@ where
         };
 
         Ok(ResponsePacket::SBusType { res })
+    }
+
+    fn handle_o_spi_op(&mut self) -> Result<ResponsePacket, SerProgError> {
+        // TODO: Implement OSpiOp
+        Err(SerProgError::NotImplemented { opcode: OpCode::OSpiOp })
     }
 }
 
