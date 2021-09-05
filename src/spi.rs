@@ -9,6 +9,11 @@ use stm32f1xx_hal::{
     time::Hertz,
 };
 
+const SPI_MODE: Mode = Mode {
+                    polarity: Polarity::IdleLow,
+                    phase: Phase::CaptureOnFirstTransition,
+                };
+
 type SpiPins = (
     PA5<Alternate<PushPull>>, // sck
     PA6<Input<Floating>>,     // miso
@@ -90,34 +95,28 @@ impl SpiManager {
         }
     }
 
-    /*
-    pub(crate) fn spi_enable<F: Into<Hertz>, REMAP, PINS>(
-        self,
-        freq: F,
-        mapr: &mut MAPR,
-        crl: &mut CRL,
-        apb: &mut APB2,
-    ) -> SpiEnabled
+    pub(crate) fn enable<F>(self, freq: F, mapr: &mut MAPR, crl: &mut CRL, apb: &mut APB2) -> Self
     where
         F: Into<Hertz>,
     {
-        let pins = (
-            self.sck.into_alternate_push_pull(crl),
-            self.miso,
-            self.mosi.into_alternate_push_pull(crl),
-        );
-
-        let spi_mode = Mode {
-            polarity: Polarity::IdleLow,
-            phase: Phase::CaptureOnFirstTransition,
-        };
-
-        let spi = Spi::spi1(self.spi, pins, mapr, spi_mode, freq, self.clocks, apb);
-        SpiEnabled {
-            spi,
-            clocks: self.clocks,
-            cs: self.cs.into_push_pull_output(crl),
+        match self {
+            Self::SpiEnabled { .. } => self,
+            Self::SpiDisabled {
+                cs,
+                sck,
+                miso,
+                mosi,
+                spi,
+                clocks,
+            } => {
+                let pins = (
+                    sck.into_alternate_push_pull(crl),
+                    miso,
+                    mosi.into_alternate_push_pull(crl),
+                );
+                let spi = Spi::spi1(spi, pins, mapr, SPI_MODE, freq, clocks, apb);
+                Self::SpiEnabled {cs: cs.into_push_pull_output(crl), spi, clocks}
+            }
         }
     }
-    */
 }
