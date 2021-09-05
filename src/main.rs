@@ -4,14 +4,22 @@
 
 mod data_utils;
 mod serprog;
+mod spi;
 
 use cortex_m::asm::delay;
 use cortex_m_rt::entry; // The runtime
 use data_utils::OpCode;
-use embedded_hal::digital::v2::OutputPin;
+use embedded_hal::{
+    digital::v2::OutputPin,
+    spi::{Mode, Phase, Polarity},
+};
 use serprog::SerProg;
-use stm32f1xx_hal::usb::{Peripheral, UsbBus};
-use stm32f1xx_hal::{pac, prelude::*}; // STM32F1 specific functions
+use stm32f1xx_hal::{
+    pac,
+    prelude::*,
+    spi::Spi,
+    usb::{Peripheral, UsbBus},
+};
 use usb_device::prelude::{UsbDeviceBuilder, UsbVidPid};
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
@@ -41,6 +49,7 @@ fn main() -> ! {
 
     assert!(clocks.usbclk_valid());
 
+    let mut afio = dp.AFIO.constrain(&mut rcc.apb2);
     let mut gpioa = dp.GPIOA.split(&mut rcc.apb2);
 
     // Pull down PA12 (D+ pin) to send a RESET condition to the USB bus
@@ -67,6 +76,10 @@ fn main() -> ! {
         .device_class(USB_CLASS_CDC)
         .build();
 
+    // Setup SPI
+    let (cs, sck, miso, mosi) = (gpioa.pa4, gpioa.pa5, gpioa.pa6, gpioa.pa7);
+
+    let spi = spi::SpiDisabled::new(cs, sck, miso, mosi, dp.SPI1, clocks);
     let mut serprog = SerProg::new(serial, usb_dev);
     let mut response_buffer = [0u8; data_utils::ResponsePacket::MAX_SIZE];
 

@@ -1,17 +1,22 @@
 use crate::data_utils::{
     OpCode, ResponsePacket, ResponseType, CMD_MAP, I_FACE_VERSION, PGM_NAME, SUPPORTED_BUS,
 };
-use embedded_hal::serial::Read;
+use embedded_hal::{digital::v2::OutputPin, serial::Read};
 use snafu::Snafu;
-use usb_device::bus::UsbBus;
-use usb_device::prelude::UsbDevice;
+use stm32f1xx_hal::{
+    gpio::gpioa::{PA4, PA5, PA6, PA7},
+    gpio::{Alternate, Floating, Input, Output, PushPull},
+    pac::SPI1,
+    spi::Spi,
+};
+use usb_device::{bus::UsbBus, prelude::UsbDevice};
 use usbd_serial::SerialPort;
 
 pub(crate) struct SerProg<'a, B>
 where
     B: UsbBus,
 {
-    pub serial: SerialPort<'a, B>,
+    serial: SerialPort<'a, B>,
     usb_dev: UsbDevice<'a, B>,
 }
 
@@ -137,34 +142,18 @@ where
 
     fn handle_o_spi_op(&mut self) -> Result<ResponsePacket, SerProgError> {
         // TODO: Implement OSpiOp
-        Err(SerProgError::NotImplemented { opcode: OpCode::OSpiOp })
-    }
-}
-
-/*
-pub(crate) trait SerProg {
-    fn handle_command(&mut self, cmd: OpCode) -> AsRef<[u8]>;
-    fn read_u8(&mut self) -> u8;
-    fn read_u24_as_u32(&mut self) -> u32 {
-        self.read_u8() as u32
-    }
-}
-
-impl<B, RS, WS> SerProg for SerialPort<'_, B, RS, WS>
-where
-    B: UsbBus,
-    RS: BorrowMut<[u8]>,
-    WS: BorrowMut<[u8]>,
-{
-    fn read_u8(&mut self) -> u8 {
-        Read::read(self).unwrap()
+        Err(SerProgError::NotImplemented {
+            opcode: OpCode::OSpiOp,
+        })
     }
 
-    fn handle_command(&mut self, cmd: OpCode) {
-        match cmd {
-            Nop => Ack
-            _ => {}
-        }
+    fn spi_select(&mut self) {
+        // TODO
+        // self.spi_cs.set_low().unwrap();
+    }
+
+    fn spi_unselect(&mut self) {
+        // TODO
+        // self.spi_cs.set_high().unwrap();
     }
 }
-*/
