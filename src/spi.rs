@@ -10,9 +10,9 @@ use stm32f1xx_hal::{
 };
 
 const SPI_MODE: Mode = Mode {
-                    polarity: Polarity::IdleLow,
-                    phase: Phase::CaptureOnFirstTransition,
-                };
+    polarity: Polarity::IdleLow,
+    phase: Phase::CaptureOnFirstTransition,
+};
 
 type SpiPins = (
     PA5<Alternate<PushPull>>, // sck
@@ -20,20 +20,31 @@ type SpiPins = (
     PA7<Alternate<PushPull>>, // mosi
 );
 
-pub(crate) enum SpiManager {
-    SpiDisabled {
-        cs: PA4<Input<Floating>>,
-        sck: PA5<Input<Floating>>,
-        miso: PA6<Input<Floating>>,
-        mosi: PA7<Input<Floating>>,
-        spi: SPI1,
-        clocks: Clocks,
-    },
-    SpiEnabled {
-        spi: Spi<SPI1, Spi1NoRemap, SpiPins, u8>,
-        cs: PA4<Output<PushPull>>,
-        clocks: Clocks,
-    },
+struct SpiDisabled {
+    cs: PA4<Input<Floating>>,
+    sck: PA5<Input<Floating>>,
+    miso: PA6<Input<Floating>>,
+    mosi: PA7<Input<Floating>>,
+    spi: SPI1,
+}
+
+struct SpiEnabled {
+    cs: PA4<Output<PushPull>>,
+    spi: Spi<SPI1, Spi1NoRemap, SpiPins, u8>,
+}
+
+pub(crate) struct SpiManager {
+    /*
+    cs:   Option<PA4<Input<Floating>>>,
+    sck:  Option<PA5<Input<Floating>>>,
+    miso: Option<PA6<Input<Floating>>>,
+    mosi: Option<PA7<Input<Floating>>>,
+    spi: Option<SPI1>,
+    spi_hal: Option<Spi<SPI1, Spi1NoRemap, SpiPins, u8>>,
+    */
+    disabled: Option<SpiDisabled>,
+    enabled: Option<SpiEnabled>,
+    clocks: Clocks,
 }
 
 impl SpiManager {
@@ -45,78 +56,102 @@ impl SpiManager {
         spi: SPI1,
         clocks: Clocks,
     ) -> Self {
-        Self::SpiDisabled {
+        Self {
+            enabled: None,
+            disabled: Some(SpiDisabled {
+                cs,
+                sck,
+                miso,
+                mosi,
+                spi,
+            }),
+            clocks,
+        }
+    }
+
+    pub(crate) fn disable(&mut self, crl: &mut CRL) {
+        if let Some(SpiEnabled { cs, spi }) = self.enabled.take() {
+            let (spi, (sck, miso, mosi)) = spi.release();
+            self.disabled = Some(SpiDisabled {
+                cs: cs.into_floating_input(crl),
+                sck: sck.into_floating_input(crl),
+                miso: miso.into_floating_input(crl),
+                mosi: mosi.into_floating_input(crl),
+                spi,
+            });
+        }
+    }
+
+    pub(crate) fn enable<F>(&mut self, freq: F, mapr: &mut MAPR, crl: &mut CRL, apb: &mut APB2)
+    where
+        F: Into<Hertz>,
+    {
+        if let Some(SpiDisabled {
             cs,
             sck,
             miso,
             mosi,
             spi,
-            clocks,
-        }
-    }
-
-    pub(crate) fn release(
-        self,
-        crl: &mut CRL,
-    ) -> (
-        SPI1,
-        PA4<Input<Floating>>,
-        PA5<Input<Floating>>,
-        PA6<Input<Floating>>,
-        PA7<Input<Floating>>,
-    ) {
-        match self {
-            Self::SpiDisabled {
-                spi,
-                cs,
-                sck,
+        }) = self.disabled.take()
+        {
+            let pins = (
+                sck.into_alternate_push_pull(crl),
                 miso,
-                mosi,
-                ..
-            } => (spi, cs, sck, miso, mosi),
-            Self::SpiEnabled { .. } => self.disable(crl).release(crl),
+                mosi.into_alternate_push_pull(crl),
+            );
+            let spi = Spi::spi1(spi, pins, mapr, SPI_MODE, freq, self.clocks, apb);
+            self.enabled = Some(SpiEnabled {
+                cs: cs.into_push_pull_output(crl),
+                spi,
+            });
         }
     }
 
-    pub(crate) fn disable(self, crl: &mut CRL) -> Self {
-        match self {
-            Self::SpiDisabled { .. } => self,
-            Self::SpiEnabled { spi, cs, clocks } => {
-                let (spi, (sck, miso, mosi)) = spi.release();
-                Self::SpiDisabled {
-                    cs: cs.into_floating_input(crl),
-                    sck: sck.into_floating_input(crl),
-                    miso,
-                    mosi: mosi.into_floating_input(crl),
-                    spi,
-                    clocks,
-                }
-            }
-        }
-    }
-
-    pub(crate) fn enable<F>(self, freq: F, mapr: &mut MAPR, crl: &mut CRL, apb: &mut APB2) -> Self
+    /// Configures the SPI frequency if self is enabled, else it will be equivalent to enable()
+    pub(crate) fn configure<F>(&mut self, freq: F, mapr: &mut MAPR, crl: &mut CRL, apb: &mut APB2)
     where
         F: Into<Hertz>,
     {
-        match self {
-            Self::SpiEnabled { .. } => self,
-            Self::SpiDisabled {
-                cs,
-                sck,
-                miso,
-                mosi,
-                spi,
-                clocks,
-            } => {
-                let pins = (
-                    sck.into_alternate_push_pull(crl),
-                    miso,
-                    mosi.into_alternate_push_pull(crl),
-                );
-                let spi = Spi::spi1(spi, pins, mapr, SPI_MODE, freq, clocks, apb);
-                Self::SpiEnabled {cs: cs.into_push_pull_output(crl), spi, clocks}
+        // TODO: Implement configure
+        /*
+        match self.enabled.take() {
+            Some(SpiEnabled { cs, spi }) => {
+            }
+            None => {
+                self.enabled = self.
             }
         }
+        match self.spi_hal.take() {
+            None => {
+                self.enable(freq, mapr, crl, apb);
+            }
+            Some(spi_hal) => {
+                let (spi1, pins) = spi_hal.release();
+                self.spi_hal = Some(Spi::spi1(
+                    spi1,
+                    pins,
+                    mapr,
+                    SPI_MODE,
+                    freq,
+                    self.clocks,
+                    apb,
+                ));
+            }
+        }
+            match self {
+                Self::SpiDisabled { .. } => {
+                    //
+                },
+                Self::SpiEnabled { spi, cs, clocks } => {
+                    let (spi1, pins) = spi.release();
+                    core::mem::replace(self, Self::SpiEnabled {
+                        cs: *cs, spi: Spi::spi1(spi1, pins, mapr, SPI_MODE, freq, *clocks, apb), clocks: *clocks
+                    });
+                    /*
+
+                    */
+                }
+            }
+        */
     }
 }

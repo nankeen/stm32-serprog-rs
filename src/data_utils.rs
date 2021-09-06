@@ -15,6 +15,7 @@ pub const CMD_MAP: u32 = 1 << OpCode::Nop as u8
     | 1 << OpCode::SBusType as u8
     | 1 << OpCode::SSpiFreq as u8
     | 1 << OpCode::SPinState as u8;
+pub const MAX_BUFFER_SIZE: usize = 128;
 
 #[derive(Snafu, Debug)]
 pub enum DataError {
@@ -32,13 +33,34 @@ pub enum ResponseType {
 #[repr(C)]
 pub enum ResponsePacket {
     Nop,
-    QIface { iface_version: u16 },
-    QCmdMap { cmd_map: [u8; 32] },
-    QPgmName { pgm_name: [u8; 16] },
-    QSerBuf { size: u16 },
-    QBusType { bus_type: u8 },
+    QIface {
+        iface_version: u16,
+    },
+    QCmdMap {
+        cmd_map: [u8; 32],
+    },
+    QPgmName {
+        pgm_name: [u8; 16],
+    },
+    QSerBuf {
+        size: u16,
+    },
+    QBusType {
+        bus_type: u8,
+    },
     SyncNop,
-    SBusType { res: ResponseType },
+    SBusType {
+        res: ResponseType,
+    },
+    SpiOp {
+        res: ResponseType,
+        rlen: usize,
+        data: [u8; MAX_BUFFER_SIZE],
+    },
+    SSpiFreq {
+        res: ResponseType,
+        set_freq: u32,
+    },
 }
 
 impl ResponsePacket {
@@ -86,6 +108,24 @@ impl ResponsePacket {
             ResponsePacket::SBusType { res } => {
                 buf[0] = *res as u8;
             }
+            ResponsePacket::SpiOp { res, rlen, data } => {
+                buf[0] = *res as u8;
+                match res {
+                    ResponseType::Nak => (),
+                    ResponseType::Ack => {
+                        buf[1..*rlen].copy_from_slice(&data[..*rlen]);
+                    }
+                }
+            }
+            ResponsePacket::SSpiFreq { res, set_freq } => {
+                buf[0] = *res as u8;
+                match res {
+                    ResponseType::Nak => (),
+                    ResponseType::Ack => {
+                        buf[1..].copy_from_slice(&set_freq.to_le_bytes());
+                    }
+                }
+            }
         }
 
         Ok(packet_size)
@@ -101,6 +141,8 @@ impl ResponsePacket {
             ResponsePacket::QBusType { .. } => 2,
             ResponsePacket::SyncNop => 2,
             ResponsePacket::SBusType { .. } => 1,
+            ResponsePacket::SpiOp { rlen, .. } => rlen + 1,
+            ResponsePacket::SSpiFreq { .. } => 5,
         }
     }
 }

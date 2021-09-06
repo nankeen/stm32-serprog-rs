@@ -1,14 +1,12 @@
-use crate::data_utils::{
-    OpCode, ResponsePacket, ResponseType, CMD_MAP, I_FACE_VERSION, PGM_NAME, SUPPORTED_BUS,
+use crate::{
+    data_utils::{
+        OpCode, ResponsePacket, ResponseType, CMD_MAP, I_FACE_VERSION, PGM_NAME, SUPPORTED_BUS,
+    },
+    spi::SpiManager,
 };
 use embedded_hal::{digital::v2::OutputPin, serial::Read};
 use snafu::Snafu;
-use stm32f1xx_hal::{
-    gpio::gpioa::{PA4, PA5, PA6, PA7},
-    gpio::{Alternate, Floating, Input, Output, PushPull},
-    pac::SPI1,
-    spi::Spi,
-};
+use stm32f1xx_hal::{afio::MAPR, gpio::gpioa::CRL, rcc::APB2, time::U32Ext};
 use usb_device::{bus::UsbBus, prelude::UsbDevice};
 use usbd_serial::SerialPort;
 
@@ -16,6 +14,7 @@ pub(crate) struct SerProg<'a, B>
 where
     B: UsbBus,
 {
+    spi_manager: SpiManager,
     serial: SerialPort<'a, B>,
     usb_dev: UsbDevice<'a, B>,
 }
@@ -34,8 +33,16 @@ impl<'a, B> SerProg<'a, B>
 where
     B: UsbBus,
 {
-    pub fn new(serial: SerialPort<'a, B>, usb_dev: UsbDevice<'a, B>) -> Self {
-        Self { serial, usb_dev }
+    pub fn new(
+        spi_manager: SpiManager,
+        serial: SerialPort<'a, B>,
+        usb_dev: UsbDevice<'a, B>,
+    ) -> Self {
+        Self {
+            spi_manager,
+            serial,
+            usb_dev,
+        }
     }
 
     pub fn read_u8(&mut self) -> u8 {
@@ -57,6 +64,14 @@ where
         val
     }
 
+    fn read_u32(&mut self) -> u32 {
+        let mut val = self.read_u8() as u32;
+        val |= (self.read_u8() as u32) << 8;
+        val |= (self.read_u8() as u32) << 16;
+        val |= (self.read_u8() as u32) << 24;
+        val
+    }
+
     pub fn send_response(&mut self, buf: &[u8]) {
         let mut write_offset = 0;
         let count = buf.len();
@@ -70,7 +85,13 @@ where
         }
     }
 
-    pub fn handle_command(&mut self, cmd: OpCode) -> Result<ResponsePacket, SerProgError> {
+    pub fn handle_command(
+        &mut self,
+        cmd: OpCode,
+        mapr: &mut MAPR,
+        crl: &mut CRL,
+        apb: &mut APB2,
+    ) -> Result<ResponsePacket, SerProgError> {
         match cmd {
             OpCode::Nop => self.handle_nop(),
             OpCode::QIface => self.handle_q_iface(),
@@ -81,6 +102,7 @@ where
             OpCode::SyncNop => self.handle_sync_nop(),
             OpCode::SBusType => self.handle_s_bus_type(),
             OpCode::OSpiOp => self.handle_o_spi_op(),
+            OpCode::SSpiFreq => self.handle_s_spi_freq(mapr, crl, apb),
             opcode => Err(SerProgError::NotImplemented { opcode }),
         }
     }
@@ -145,6 +167,28 @@ where
         Err(SerProgError::NotImplemented {
             opcode: OpCode::OSpiOp,
         })
+    }
+
+    fn handle_s_spi_freq(
+        &mut self,
+        mapr: &mut MAPR,
+        crl: &mut CRL,
+        apb: &mut APB2,
+    ) -> Result<ResponsePacket, SerProgError> {
+        // Implement SSpiFreq
+        let freq = self.read_u32();
+        if freq == 0 {
+            Ok(ResponsePacket::SSpiFreq {
+                res: ResponseType::Nak,
+                set_freq: 0,
+            })
+        } else {
+            self.spi_manager.configure(freq.hz(), mapr, crl, apb);
+            Ok(ResponsePacket::SSpiFreq {
+                res: ResponseType::Ack,
+                set_freq: freq,
+            })
+        }
     }
 
     fn spi_select(&mut self) {

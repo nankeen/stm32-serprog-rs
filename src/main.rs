@@ -9,15 +9,14 @@ mod spi;
 use cortex_m::asm::delay;
 use cortex_m_rt::entry; // The runtime
 use data_utils::OpCode;
-use embedded_hal::{
-    digital::v2::OutputPin,
-    spi::{Mode, Phase, Polarity},
-};
+use embedded_hal::digital::v2::OutputPin;
 use serprog::SerProg;
 use stm32f1xx_hal::{
+    afio::MAPR,
+    gpio::gpioa::CRL,
     pac,
     prelude::*,
-    spi::Spi,
+    rcc::APB2,
     usb::{Peripheral, UsbBus},
 };
 use usb_device::prelude::{UsbDeviceBuilder, UsbVidPid};
@@ -79,8 +78,8 @@ fn main() -> ! {
     // Setup SPI
     let (cs, sck, miso, mosi) = (gpioa.pa4, gpioa.pa5, gpioa.pa6, gpioa.pa7);
 
-    let spi = spi::SpiDisabled::new(cs, sck, miso, mosi, dp.SPI1, clocks);
-    let mut serprog = SerProg::new(serial, usb_dev);
+    let spi = spi::SpiManager::new(cs, sck, miso, mosi, dp.SPI1, clocks);
+    let mut serprog = SerProg::new(spi, serial, usb_dev);
     let mut response_buffer = [0u8; data_utils::ResponsePacket::MAX_SIZE];
 
     // Loop to handle commands
@@ -88,7 +87,9 @@ fn main() -> ! {
         // Read opcode from USB serial
         if let Some(cmd) = OpCode::from_u8(serprog.read_u8()) {
             // Pass it to the command handler
-            if let Ok(res) = serprog.handle_command(cmd) {
+            if let Ok(res) =
+                serprog.handle_command(cmd, &mut afio.mapr, &mut gpioa.crl, &mut rcc.apb2)
+            {
                 // Serialize and respond
                 if let Ok(n) = res.to_bytes(&mut response_buffer) {
                     serprog.send_response(&response_buffer[..n]);
