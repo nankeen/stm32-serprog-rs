@@ -1,12 +1,7 @@
-use crate::{
-    data_utils::{
-        OpCode, ResponsePacket, ResponseType, CMD_MAP, I_FACE_VERSION, PGM_NAME, SUPPORTED_BUS,
-    },
-    spi::SpiManager,
-};
-use embedded_hal::{digital::v2::OutputPin, serial::Read};
+use crate::{prelude::*, spi::SpiManager};
+use embedded_hal::serial::Read;
 use snafu::Snafu;
-use stm32f1xx_hal::{afio::MAPR, gpio::gpioa::CRL, rcc::APB2, time::U32Ext};
+use stm32f1xx_hal::{afio::MAPR, gpio::Cr, prelude::*};
 use usb_device::{bus::UsbBus, prelude::UsbDevice};
 use usbd_serial::SerialPort;
 
@@ -57,7 +52,7 @@ where
         }
     }
 
-    fn read_u24_as_u32(&mut self) -> u32 {
+    fn _read_u24_as_u32(&mut self) -> u32 {
         let mut val = self.read_u8() as u32;
         val |= (self.read_u8() as u32) << 8;
         val |= (self.read_u8() as u32) << 16;
@@ -89,8 +84,7 @@ where
         &mut self,
         cmd: OpCode,
         mapr: &mut MAPR,
-        crl: &mut CRL,
-        apb: &mut APB2,
+        crl: &mut Cr<'A', false>,
     ) -> Result<ResponsePacket, SerProgError> {
         match cmd {
             OpCode::Nop => self.handle_nop(),
@@ -102,7 +96,7 @@ where
             OpCode::SyncNop => self.handle_sync_nop(),
             OpCode::SBusType => self.handle_s_bus_type(),
             OpCode::OSpiOp => self.handle_o_spi_op(),
-            OpCode::SSpiFreq => self.handle_s_spi_freq(mapr, crl, apb),
+            OpCode::SSpiFreq => self.handle_s_spi_freq(mapr, crl),
             opcode => Err(SerProgError::NotImplemented { opcode }),
         }
     }
@@ -172,8 +166,7 @@ where
     fn handle_s_spi_freq(
         &mut self,
         mapr: &mut MAPR,
-        crl: &mut CRL,
-        apb: &mut APB2,
+        crl: &mut Cr<'A', false>,
     ) -> Result<ResponsePacket, SerProgError> {
         // Implement SSpiFreq
         let freq = self.read_u32();
@@ -183,7 +176,7 @@ where
                 set_freq: 0,
             })
         } else {
-            self.spi_manager.configure(freq.hz(), mapr, crl, apb);
+            self.spi_manager.configure(freq.Hz(), mapr, crl);
             Ok(ResponsePacket::SSpiFreq {
                 res: ResponseType::Ack,
                 set_freq: freq,

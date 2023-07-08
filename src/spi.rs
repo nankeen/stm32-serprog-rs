@@ -1,10 +1,9 @@
 use embedded_hal::spi::{Mode, Phase, Polarity};
 use stm32f1xx_hal::{
     afio::MAPR,
-    gpio::gpioa::{CRL, PA4, PA5, PA6, PA7},
-    gpio::{Alternate, Floating, Input, Output, PushPull},
+    gpio::{Alternate, Cr, Floating, Input, Output, PushPull, PA4, PA5, PA6, PA7},
     pac::SPI1,
-    rcc::{Clocks, APB2},
+    rcc::Clocks,
     spi::{Spi, Spi1NoRemap},
     time::Hertz,
 };
@@ -34,14 +33,6 @@ struct SpiEnabled {
 }
 
 pub(crate) struct SpiManager {
-    /*
-    cs:   Option<PA4<Input<Floating>>>,
-    sck:  Option<PA5<Input<Floating>>>,
-    miso: Option<PA6<Input<Floating>>>,
-    mosi: Option<PA7<Input<Floating>>>,
-    spi: Option<SPI1>,
-    spi_hal: Option<Spi<SPI1, Spi1NoRemap, SpiPins, u8>>,
-    */
     disabled: Option<SpiDisabled>,
     enabled: Option<SpiEnabled>,
     clocks: Clocks,
@@ -69,7 +60,7 @@ impl SpiManager {
         }
     }
 
-    pub(crate) fn disable(&mut self, crl: &mut CRL) {
+    pub fn disable(&mut self, crl: &mut Cr<'A', false>) {
         if let Some(SpiEnabled { cs, spi }) = self.enabled.take() {
             let (spi, (sck, miso, mosi)) = spi.release();
             self.disabled = Some(SpiDisabled {
@@ -82,7 +73,7 @@ impl SpiManager {
         }
     }
 
-    pub(crate) fn enable<F>(&mut self, freq: F, mapr: &mut MAPR, crl: &mut CRL, apb: &mut APB2)
+    pub fn enable<F>(&mut self, freq: F, mapr: &mut MAPR, crl: &mut Cr<'A', false>)
     where
         F: Into<Hertz>,
     {
@@ -99,7 +90,7 @@ impl SpiManager {
                 miso,
                 mosi.into_alternate_push_pull(crl),
             );
-            let spi = Spi::spi1(spi, pins, mapr, SPI_MODE, freq, self.clocks, apb);
+            let spi = Spi::spi1(spi, pins, mapr, SPI_MODE, freq.into(), self.clocks);
             self.enabled = Some(SpiEnabled {
                 cs: cs.into_push_pull_output(crl),
                 spi,
@@ -108,7 +99,7 @@ impl SpiManager {
     }
 
     /// Configures the SPI frequency if self is enabled, else it will be equivalent to enable()
-    pub(crate) fn configure<F>(&mut self, freq: F, mapr: &mut MAPR, crl: &mut CRL, apb: &mut APB2)
+    pub(crate) fn configure<F>(&mut self, _freq: F, _mapr: &mut MAPR, _crl: &mut Cr<'A', false>)
     where
         F: Into<Hertz>,
     {
