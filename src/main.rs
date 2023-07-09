@@ -2,17 +2,19 @@
 #![no_std]
 #![no_main]
 
+mod address;
+mod buffer;
 mod command;
-mod data_utils;
+mod constants;
 mod error;
 mod opcode;
 mod response_packet;
 mod serprog;
 mod spi;
 
+use buffer::Buffer;
 use cortex_m::asm::delay;
 use cortex_m_rt::entry; // The runtime
-use opcode::OpCode;
 use serprog::SerProg;
 use stm32f1xx_hal::{
     pac,
@@ -26,26 +28,11 @@ use usbd_serial::{SerialPort, USB_CLASS_CDC};
 use panic_halt; // When a panic occurs, stop the microcontroller
 
 mod prelude {
+    pub(crate) use crate::address::*;
+    pub(crate) use crate::constants::*;
     pub(crate) use crate::error::*;
     pub(crate) use crate::opcode::*;
     pub(crate) use crate::response_packet::*;
-
-    pub const I_FACE_VERSION: u16 = 0x01;
-    pub const PGM_NAME: &str = "stm32-vserprog";
-    // Support SPI only
-    pub const SUPPORTED_BUS: u8 = 1 << 3;
-    pub const CMD_MAP: u32 = 1 << OpCode::Nop as u8
-        | 1 << OpCode::QIface as u8
-        | 1 << OpCode::QCmdMap as u8
-        | 1 << OpCode::QPgmName as u8
-        | 1 << OpCode::QSerBuf as u8
-        | 1 << OpCode::QBusType as u8
-        | 1 << OpCode::SyncNop as u8
-        | 1 << OpCode::OSpiOp as u8
-        | 1 << OpCode::SBusType as u8
-        | 1 << OpCode::SSpiFreq as u8
-        | 1 << OpCode::SPinState as u8;
-    pub const MAX_BUFFER_SIZE: usize = 128;
 }
 
 #[entry]
@@ -104,18 +91,17 @@ fn main() -> ! {
     let spi = spi::SpiManager::new(cs, sck, miso, mosi, dp.SPI1, clocks);
     let mut serprog = SerProg::new(spi, serial, usb_dev);
     let mut response_buffer = [0u8; response_packet::ResponsePacket::MAX_SIZE];
+    let mut command_buffer = Buffer::new([0u8; command::Command::MAX_SIZE]);
 
     // Loop to handle commands
     loop {
-        // Read opcode from USB serial
-        if let Some(cmd) = OpCode::from_u8(serprog.read_u8()) {
-            // Pass it to the command handler
-            if let Ok(res) = serprog.handle_command(cmd, &mut afio.mapr, &mut gpioa.crl) {
-                // Serialize and respond
-                if let Ok(n) = res.to_bytes(&mut response_buffer) {
-                    serprog.send_response(&response_buffer[..n]);
-                }
+        match serprog.read_command(&mut command_buffer) {
+            Ok(cmd) => {
+                serprog
+                    .handle_command(cmd, &mut afio.mapr, &mut gpioa.crl)
+                    .unwrap();
             }
+            Err(_) => command_buffer.clear(),
         }
     }
 }
