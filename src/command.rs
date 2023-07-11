@@ -9,7 +9,7 @@ use nom::{
     sequence::pair,
     IResult,
 };
-use stm32f1xx_hal::time::Hertz;
+use stm32f1xx_hal::time::{Hertz, Hz};
 
 #[derive(Clone, Copy, Debug)]
 pub enum Command<'a> {
@@ -85,6 +85,14 @@ impl<'a> Command<'a> {
         result
     }
 
+    fn sspifreq(input: &[u8]) -> IResult<&[u8], Self> {
+        map(le_u32, |freq| Self::SSpiFreq(Hz(freq)))(input)
+    }
+
+    fn spinstate(input: &[u8]) -> IResult<&[u8], Self> {
+        map(le_u8, |state| Self::SPinState(state == 0))(input)
+    }
+
     pub fn parse(input: &'a [u8]) -> IResult<&'a [u8], Self> {
         let (res, opcode) = Self::opcode(input)?;
         let ok = |opcode| Ok((res, opcode));
@@ -110,8 +118,8 @@ impl<'a> Command<'a> {
             OpCode::QRdnMaxLen => ok(Self::QRdnMaxLen),
             OpCode::SBusType => Self::sbustype(res),
             OpCode::OSpiOp => Self::ospiop(res),
-            // TODO: Implement remaining opcode parsing
-            _ => unimplemented!(),
+            OpCode::SSpiFreq => Self::sspifreq(res),
+            OpCode::SPinState => Self::spinstate(res),
         }
     }
 }

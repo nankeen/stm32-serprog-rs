@@ -96,7 +96,10 @@ fn main() -> ! {
     // Loop to handle commands
     loop {
         match serprog.process_command(&mut command_buffer) {
-            Ok(cmd) => (),
+            Ok(resp) => {
+                let n = resp.to_bytes(&mut response_buffer).unwrap();
+                serprog.send_response(&response_buffer[..n])
+            }
             Err(_) => command_buffer.clear(),
         }
     }

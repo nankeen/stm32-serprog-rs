@@ -72,31 +72,32 @@ where
         Ok(response)
     }
 
-    // pub fn send_response(&mut self, buf: &[u8]) {
-    //     let mut write_offset = 0;
-    //     let count = buf.len();
-    //     while write_offset < count {
-    //         match self.serial.write(&buf[write_offset..count]) {
-    //             Ok(len) if len > 0 => {
-    //                 write_offset += len;
-    //             }
-    //             _ => {}
-    //         }
-    //     }
-    // }
+    pub fn send_response(&mut self, buf: &[u8]) {
+        let mut write_offset = 0;
+        let count = buf.len();
+        while write_offset < count {
+            match self.serial.write(&buf[write_offset..count]) {
+                Ok(len) if len > 0 => {
+                    write_offset += len;
+                }
+                _ => {}
+            }
+        }
+    }
 
     fn handle_command(&mut self, cmd: Command) -> Result<ResponsePacket, SerProgError> {
         match cmd {
             Command::Nop => Ok(ResponsePacket::Nop),
+            Command::QIface => self.handle_qiface(),
             _ => unimplemented!("command not implemented"),
         }
     }
 
-    // fn handle_q_iface(&mut self) -> Result<ResponsePacket, SerProgError> {
-    //     Ok(ResponsePacket::QIface {
-    //         iface_version: I_FACE_VERSION,
-    //     })
-    // }
+    fn handle_qiface(&mut self) -> Result<ResponsePacket, SerProgError> {
+        Ok(ResponsePacket::QIface {
+            iface_version: I_FACE_VERSION,
+        })
+    }
 
     // fn handle_q_cmd_map(&mut self) -> Result<ResponsePacket, SerProgError> {
     //     let cmd_map: [u8; 32] = {
