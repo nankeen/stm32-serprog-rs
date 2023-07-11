@@ -95,12 +95,8 @@ fn main() -> ! {
 
     // Loop to handle commands
     loop {
-        match serprog.read_command(&mut command_buffer) {
-            Ok(cmd) => {
-                serprog
-                    .handle_command(cmd, &mut afio.mapr, &mut gpioa.crl)
-                    .unwrap();
-            }
+        match serprog.process_command(&mut command_buffer) {
+            Ok(cmd) => (),
             Err(_) => command_buffer.clear(),
         }
     }

@@ -41,11 +41,11 @@ where
         }
     }
 
-    pub fn read_command<RS: BorrowMut<[u8]>>(
+    pub fn process_command<RS: BorrowMut<[u8]>>(
         &mut self,
         buffer: &mut Buffer<RS>,
-    ) -> Result<Command, SerProgError> {
-        loop {
+    ) -> Result<ResponsePacket, SerProgError> {
+        let (bytes_parsed, cmd) = loop {
             buffer
                 .write_all(buffer.available_write(), |mut buf| {
                     self.serial.read(&mut buf)
@@ -57,15 +57,19 @@ where
             match buffer.read(n, Command::parse) {
                 // Loop and get more data if incomplete
                 Err(nom::Err::Incomplete(_)) => (),
-                Err(_) => return Err(SerProgError::ReadFail),
+                Err(_) => break Err(SerProgError::ReadFail),
                 Ok((bytes_left, cmd)) => {
                     let bytes_parsed = n - bytes_left.len();
-                    // Only consume when buffer is full
-                    buffer.consume(bytes_parsed);
-                    return Ok(cmd);
+                    break Ok((bytes_parsed, cmd));
                 }
             }
-        }
+        }?;
+
+        let response = self.handle_command(cmd)?;
+
+        buffer.consume(bytes_parsed);
+
+        Ok(response)
     }
 
     // pub fn send_response(&mut self, buf: &[u8]) {
@@ -81,12 +85,7 @@ where
     //     }
     // }
 
-    pub fn handle_command(
-        &mut self,
-        cmd: Command,
-        mapr: &mut MAPR,
-        crl: &mut Cr<'A', false>,
-    ) -> Result<ResponsePacket, SerProgError> {
+    fn handle_command(&mut self, cmd: Command) -> Result<ResponsePacket, SerProgError> {
         match cmd {
             Command::Nop => Ok(ResponsePacket::Nop),
             _ => unimplemented!("command not implemented"),

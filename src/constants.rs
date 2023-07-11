@@ -18,10 +18,11 @@ pub const CMD_MAP: u32 = 1 << OpCode::Nop as u8
 pub const MAX_BUFFER_SIZE: usize = 128;
 
 #[derive(Clone, Copy, Debug)]
-#[repr(u8)]
-pub enum BusType {
-    Parallel = 1 << 0,
-    Lpc = 1 << 1,
-    Fwh = 1 << 2,
-    Spi = 1 << 3,
+pub struct BusType(pub u8);
+
+impl BusType {
+    const PARALLEL: Self = Self(1 << 0);
+    const LPC: Self = Self(1 << 1);
+    const FWH: Self = Self(1 << 2);
+    const SPI: Self = Self(1 << 3);
 }
