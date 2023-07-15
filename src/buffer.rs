@@ -1,13 +1,55 @@
 use core::borrow::{Borrow, BorrowMut};
+use core::ops::{Deref, DerefMut};
 use core::{cmp, ptr};
 
-pub struct Buffer<S: BorrowMut<[u8]>> {
+pub struct Buffer<S> {
     store: S,
     rpos: usize,
     wpos: usize,
 }
 
-impl<S: BorrowMut<[u8]>> Buffer<S> {
+impl<S> Deref for Buffer<S>
+where
+    S: Borrow<[u8]>,
+{
+    type Target = [u8];
+
+    fn deref(&self) -> &Self::Target {
+        self.store.borrow()
+    }
+}
+
+impl<S> DerefMut for Buffer<S>
+where
+    S: BorrowMut<[u8]>,
+{
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.store.borrow_mut()
+    }
+}
+
+unsafe impl<S> embedded_dma::WriteBuffer for Buffer<S>
+where
+    S: BorrowMut<[u8]>,
+{
+    type Word = u8;
+    unsafe fn write_buffer(&mut self) -> (*mut Self::Word, usize) {
+        self.clear();
+        (self.store.borrow_mut().as_mut_ptr(), self.available_write())
+    }
+}
+
+unsafe impl<S> embedded_dma::ReadBuffer for Buffer<S>
+where
+    S: Borrow<[u8]>,
+{
+    type Word = u8;
+    unsafe fn read_buffer(&self) -> (*const Self::Word, usize) {
+        (self.store.borrow().as_ptr(), self.available_read())
+    }
+}
+
+impl<S: Borrow<[u8]>> Buffer<S> {
     pub fn new(store: S) -> Self {
         Self {
             store,
@@ -16,9 +58,8 @@ impl<S: BorrowMut<[u8]>> Buffer<S> {
         }
     }
 
-    pub fn clear(&mut self) {
-        self.rpos = 0;
-        self.wpos = 0;
+    pub fn len(&self) -> usize {
+        self.store.borrow().len()
     }
 
     pub fn available_read(&self) -> usize {
@@ -26,8 +67,21 @@ impl<S: BorrowMut<[u8]>> Buffer<S> {
         self.wpos - self.rpos
     }
 
-    fn available_read_without_wrap(&self) -> usize {
-        cmp::min(self.wpos, self.store.borrow().len()) - self.rpos
+    // Takes up to max_count bytes from the buffer and passes a slice pointing to them to a closure
+    // for reading. The closure should return the number of bytes actually read and is allowed to
+    // read less than max_bytes. If the callback returns an error, the data is not discarded from
+    // the buffer.
+    pub fn read<'a, A>(&'a mut self, max_count: usize, f: impl FnOnce(&'a [u8]) -> A) -> A {
+        let count = cmp::min(max_count, self.available_read());
+
+        f(&self.store.borrow()[self.rpos..self.rpos + count])
+    }
+}
+
+impl<S: BorrowMut<[u8]>> Buffer<S> {
+    pub fn clear(&mut self) {
+        self.rpos = 0;
+        self.wpos = 0;
     }
 
     // Amount of space in bytes available for writing
@@ -49,25 +103,6 @@ impl<S: BorrowMut<[u8]>> Buffer<S> {
             self.rpos %= store_len;
             self.wpos %= store_len;
         }
-    }
-
-    // Writes as much as possible of data to the buffer and returns the number of bytes written
-    pub fn write(&mut self, data: &[u8]) -> usize {
-        if data.len() > self.available_write_without_discard() && self.rpos > 0 {
-            // data doesn't fit in already available space, and there is data to discard
-            self.discard_already_read_data();
-        }
-
-        let count = cmp::min(self.available_write_without_discard(), data.len());
-        if count == 0 {
-            // Buffer is full (or data is empty)
-            return 0;
-        }
-
-        self.store.borrow_mut()[self.wpos..self.wpos + count].copy_from_slice(&data[..count]);
-
-        self.wpos += count;
-        count
     }
 
     // Reserves max_count bytes of space for writing, and passes a slice pointing to them to a
@@ -97,16 +132,6 @@ impl<S: BorrowMut<[u8]>> Buffer<S> {
         })
     }
 
-    // Takes up to max_count bytes from the buffer and passes a slice pointing to them to a closure
-    // for reading. The closure should return the number of bytes actually read and is allowed to
-    // read less than max_bytes. If the callback returns an error, the data is not discarded from
-    // the buffer.
-    pub fn read<'a, A>(&'a mut self, max_count: usize, f: impl FnOnce(&'a [u8]) -> A) -> A {
-        let count = cmp::min(max_count, self.available_read());
-
-        f(&self.store.borrow()[self.rpos..self.rpos + count])
-    }
-
     fn discard_already_read_data(&mut self) {
         let data = self.store.borrow_mut();
         if self.rpos != data.len() {
@@ -121,27 +146,6 @@ impl<S: BorrowMut<[u8]>> Buffer<S> {
 
         self.wpos -= self.rpos;
         self.rpos = 0;
-    }
-}
-
-#[derive(Debug)]
-pub struct BufferStore256([u8; 256]);
-
-impl BufferStore256 {
-    pub fn new() -> Self {
-        Self([0; 256])
-    }
-}
-
-impl Borrow<[u8]> for BufferStore256 {
-    fn borrow(&self) -> &[u8] {
-        &self.0
-    }
-}
-
-impl BorrowMut<[u8]> for BufferStore256 {
-    fn borrow_mut(&mut self) -> &mut [u8] {
-        &mut self.0
     }
 }
 

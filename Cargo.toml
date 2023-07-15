@@ -18,6 +18,7 @@ usbd-serial = "^0.1.1"
 usb-device = "^0.2.9"
 # thiserror = "^1.0.41"
 snafu = { version = "^0.6.10", default-features = false }
+embedded-dma = "^0.2.0"
 
 # Access to the stm32f103 HAL.
 [dependencies.stm32f1xx-hal]

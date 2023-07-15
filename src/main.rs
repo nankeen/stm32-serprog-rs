@@ -58,8 +58,8 @@ fn main() -> ! {
 
     assert!(clocks.usbclk_valid());
 
-    let mut afio = dp.AFIO.constrain();
     let mut gpioa = dp.GPIOA.split();
+    let mut gpiob = dp.GPIOB.split();
 
     // Pull down PA12 (D+ pin) to send a RESET condition to the USB bus
     let mut usb_dp = gpioa.pa12.into_push_pull_output(&mut gpioa.crh);
@@ -86,21 +86,28 @@ fn main() -> ! {
         .build();
 
     // Setup SPI
-    let (cs, sck, miso, mosi) = (gpioa.pa4, gpioa.pa5, gpioa.pa6, gpioa.pa7);
+    let (sck, miso, mosi) = (
+        gpiob.pb13.into_alternate_push_pull(&mut gpiob.crh),
+        gpiob.pb14.into_pull_down_input(&mut gpiob.crh),
+        gpiob.pb15.into_alternate_push_pull(&mut gpiob.crh),
+    );
 
-    let spi = spi::SpiManager::new(cs, sck, miso, mosi, dp.SPI1, clocks);
+    // Setup DMA
+    let dma1 = dp.DMA1.split();
+
+    let spi = spi::SpiManager::new((sck, miso, mosi), dp.SPI2, clocks, (dma1.4, dma1.5));
     let mut serprog = SerProg::new(spi, serial, usb_dev);
     let mut response_buffer = [0u8; response_packet::ResponsePacket::MAX_SIZE];
-    let mut command_buffer = Buffer::new([0u8; command::Command::MAX_SIZE]);
+    let mut ser_buf = Buffer::new([0u8; command::Command::MAX_SIZE]);
 
     // Loop to handle commands
     loop {
-        match serprog.process_command(&mut command_buffer) {
+        match serprog.process_command(&mut ser_buf) {
             Ok(resp) => {
                 let n = resp.to_bytes(&mut response_buffer).unwrap();
                 serprog.send_response(&response_buffer[..n])
             }
-            Err(_) => command_buffer.clear(),
+            Err(_) => ser_buf.clear(),
         }
     }
 }

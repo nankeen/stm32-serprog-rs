@@ -2,8 +2,6 @@ use crate::prelude::*;
 
 pub const I_FACE_VERSION: u16 = 0x01;
 pub const PGM_NAME: &str = "stm32-vserprog";
-// Support SPI only
-pub const SUPPORTED_BUS: u8 = 1 << 3;
 pub const CMD_MAP: u32 = 1 << OpCode::Nop as u8
     | 1 << OpCode::QIface as u8
     | 1 << OpCode::QCmdMap as u8
@@ -17,12 +15,12 @@ pub const CMD_MAP: u32 = 1 << OpCode::Nop as u8
     | 1 << OpCode::SPinState as u8;
 pub const MAX_BUFFER_SIZE: usize = 128;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct BusType(pub u8);
 
 impl BusType {
-    const PARALLEL: Self = Self(1 << 0);
-    const LPC: Self = Self(1 << 1);
-    const FWH: Self = Self(1 << 2);
-    const SPI: Self = Self(1 << 3);
+    pub const _PARALLEL: Self = Self(1 << 0);
+    pub const _LPC: Self = Self(1 << 1);
+    pub const _FWH: Self = Self(1 << 2);
+    pub const SPI: Self = Self(1 << 3);
 }

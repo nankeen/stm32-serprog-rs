@@ -1,4 +1,6 @@
-use crate::prelude::*;
+use stm32f1xx_hal::time::Hertz;
+
+use crate::{buffer::Buffer, prelude::*};
 
 #[repr(u8)]
 #[derive(Clone, Copy)]
@@ -23,7 +25,13 @@ pub enum ResponsePacket {
         size: u16,
     },
     QBusType {
-        bus_type: u8,
+        bus_type: BusType,
+    },
+    QOpBuf {
+        size: u16,
+    },
+    QWrnMaxLen {
+        size: u32,
     },
     SyncNop,
     SBusType {
@@ -32,11 +40,11 @@ pub enum ResponsePacket {
     SpiOp {
         res: ResponseType,
         rlen: usize,
-        data: [u8; MAX_BUFFER_SIZE],
+        data: Buffer<[u8; MAX_BUFFER_SIZE]>,
     },
     SSpiFreq {
         res: ResponseType,
-        set_freq: u32,
+        set_freq: Hertz,
     },
 }
 
@@ -76,7 +84,15 @@ impl ResponsePacket {
             }
             ResponsePacket::QBusType { bus_type } => {
                 buf[0] = ResponseType::Ack as u8;
-                buf[1] = *bus_type;
+                buf[1] = bus_type.0;
+            }
+            ResponsePacket::QOpBuf { size } => {
+                buf[0] = ResponseType::Ack as u8;
+                buf[1..].copy_from_slice(&size.to_le_bytes())
+            }
+            ResponsePacket::QWrnMaxLen { size } => {
+                buf[0] = ResponseType::Ack as u8;
+                buf[1..].copy_from_slice(&size.to_le_bytes()[..3])
             }
             ResponsePacket::SyncNop => {
                 buf[0] = ResponseType::Ack as u8;
@@ -99,7 +115,7 @@ impl ResponsePacket {
                 match res {
                     ResponseType::Nak => (),
                     ResponseType::Ack => {
-                        buf[1..].copy_from_slice(&set_freq.to_le_bytes());
+                        buf[1..].copy_from_slice(&set_freq.to_Hz().to_le_bytes());
                     }
                 }
             }
@@ -116,6 +132,8 @@ impl ResponsePacket {
             ResponsePacket::QPgmName { .. } => 17,
             ResponsePacket::QSerBuf { .. } => 3,
             ResponsePacket::QBusType { .. } => 2,
+            ResponsePacket::QOpBuf { .. } => 3,
+            ResponsePacket::QWrnMaxLen { .. } => 4,
             ResponsePacket::SyncNop => 2,
             ResponsePacket::SBusType { .. } => 1,
             ResponsePacket::SpiOp { rlen, .. } => rlen + 1,

@@ -38,7 +38,7 @@ pub enum Command<'a> {
 }
 
 impl<'a> Command<'a> {
-    pub const MAX_SIZE: usize = 256;
+    pub const MAX_SIZE: usize = 1024;
 
     fn opcode(input: &[u8]) -> IResult<&[u8], OpCode> {
         map_opt(le_u8, OpCode::from_u8)(input)
