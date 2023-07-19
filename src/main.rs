@@ -24,7 +24,7 @@ use stm32f1xx_hal::{
 use usb_device::prelude::{UsbDeviceBuilder, UsbVidPid};
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
 
-#[allow(unused_imports)]
+#[allow(unused_imports, clippy::single_component_path_imports)]
 use panic_halt; // When a panic occurs, stop the microcontroller
 
 mod prelude {

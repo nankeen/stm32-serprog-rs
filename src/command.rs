@@ -64,11 +64,10 @@ impl<'a> Command<'a> {
 
     fn owriten(input: &'a [u8]) -> IResult<&'a [u8], Self> {
         let (input, (n, addr)) = pair(le_u24, le_u24)(input)?;
-        let result = map(streaming::take(n), |data| Self::OWriteN {
+        map(streaming::take(n), move |data| Self::OWriteN {
             addr: Address(addr),
             data,
-        })(input);
-        result
+        })(input)
     }
 
     fn odelay(input: &[u8]) -> IResult<&[u8], Self> {
@@ -81,8 +80,10 @@ impl<'a> Command<'a> {
 
     fn ospiop(input: &'a [u8]) -> IResult<&'a [u8], Self> {
         let (input, (slen, rlen)) = pair(le_u24, le_u24)(input)?;
-        let result = map(streaming::take(slen), |data| Self::OSpiOp { rlen, data })(input);
-        result
+        map(streaming::take(slen), move |data| Self::OSpiOp {
+            rlen,
+            data,
+        })(input)
     }
 
     fn sspifreq(input: &[u8]) -> IResult<&[u8], Self> {

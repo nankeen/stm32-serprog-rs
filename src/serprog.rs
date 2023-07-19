@@ -65,9 +65,7 @@ where
     ) -> Result<ResponsePacket, SerProgError> {
         let (bytes_parsed, cmd) = loop {
             buffer
-                .write_all(buffer.available_write(), |mut buf| {
-                    self.serial.read(&mut buf)
-                })
+                .write_all(buffer.available_write(), |buf| self.serial.read(buf))
                 .map_err(|_| SerProgError::ReadFail)?;
 
             let n = buffer.available_read();
@@ -213,7 +211,7 @@ where
             .spi_manager
             .take()
             // FIXME: Use the right errors
-            .ok_or_else(|| SerProgError::WriteFail)
+            .ok_or(SerProgError::WriteFail)
             .and_then(|spi| {
                 spi.read_write(rx_buffer, tx_data)
                     .map_err(|_| SerProgError::WriteFail)

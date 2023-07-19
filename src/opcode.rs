@@ -1,5 +1,6 @@
 #[derive(Clone, Copy, Debug)]
 #[repr(u8)]
+#[allow(dead_code)]
 pub enum OpCode {
     Nop = 0x00,
     QIface = 0x01,
