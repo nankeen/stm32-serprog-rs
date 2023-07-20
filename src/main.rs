@@ -6,7 +6,6 @@ mod address;
 mod buffer;
 mod command;
 mod constants;
-mod error;
 mod opcode;
 mod response_packet;
 mod serprog;
@@ -15,6 +14,7 @@ mod spi;
 use buffer::Buffer;
 use cortex_m::asm::delay;
 use cortex_m_rt::entry; // The runtime
+use embedded_alloc::Heap;
 use serprog::SerProg;
 use stm32f1xx_hal::{
     pac,
@@ -27,12 +27,15 @@ use usbd_serial::{SerialPort, USB_CLASS_CDC};
 #[allow(unused_imports, clippy::single_component_path_imports)]
 use panic_halt; // When a panic occurs, stop the microcontroller
 
+#[global_allocator]
+static HEAP: Heap = Heap::empty();
+
 mod prelude {
     pub(crate) use crate::address::*;
     pub(crate) use crate::constants::*;
-    pub(crate) use crate::error::*;
     pub(crate) use crate::opcode::*;
     pub(crate) use crate::response_packet::*;
+    pub(crate) use anyhow::{anyhow, bail, Result};
 }
 
 #[entry]
@@ -74,8 +77,6 @@ fn main() -> ! {
 
     let usb_bus = UsbBus::new(usb);
 
-    let serial = SerialPort::new(&usb_bus);
-
     // VID: ST Microelectronics
     // PID: STM32
     let usb_dev = UsbDeviceBuilder::new(&usb_bus, UsbVidPid(0x0483, 0x5740))
@@ -84,6 +85,8 @@ fn main() -> ! {
         .serial_number("CAFEBABE")
         .device_class(USB_CLASS_CDC)
         .build();
+
+    let serial = SerialPort::new(&usb_bus);
 
     // Setup SPI
     let (sck, miso, mosi) = (

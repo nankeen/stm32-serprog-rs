@@ -4,7 +4,6 @@ use core::{
 };
 
 use crate::{buffer::Buffer, command::Command, prelude::*, spi::SpiManager};
-use snafu::Snafu;
 use stm32f1xx_hal::{
     pac::SPI2,
     spi::{Pins, Remap},
@@ -23,17 +22,7 @@ where
     serial: SerialPort<'a, B>,
     op_buf: Buffer<[u8; OP_BUF_SIZE]>,
     ser_buf: Buffer<[u8; SER_BUF_SIZE]>,
-    _usb_dev: UsbDevice<'a, B>,
-}
-
-#[derive(Snafu, Debug)]
-pub enum SerProgError {
-    #[snafu(display("Could not write to serial"))]
-    WriteFail,
-    #[snafu(display("Could not read from serial"))]
-    ReadFail,
-    #[snafu(display("OpCode {:?} is not implemented", opcode))]
-    NotImplemented { opcode: OpCode },
+    usb_dev: UsbDevice<'a, B>,
 }
 
 pub const OP_BUF_SIZE: usize = 1024;
@@ -48,32 +37,37 @@ where
     pub fn new(
         spi_manager: SpiManager<REMAP, PINS>,
         serial: SerialPort<'a, B>,
-        _usb_dev: UsbDevice<'a, B>,
+        usb_dev: UsbDevice<'a, B>,
     ) -> Self {
         Self {
             spi_manager: Some(spi_manager),
             serial,
             op_buf: Buffer::new([0u8; OP_BUF_SIZE]),
             ser_buf: Buffer::new([0u8; SER_BUF_SIZE]),
-            _usb_dev,
+            usb_dev,
         }
     }
 
     pub fn process_command<RS: BorrowMut<[u8]>>(
         &mut self,
         buffer: &mut Buffer<RS>,
-    ) -> Result<ResponsePacket, SerProgError> {
+    ) -> Result<ResponsePacket> {
         let (bytes_parsed, cmd) = loop {
+            // Poll USB events
+            if !self.usb_dev.poll(&mut [&mut self.serial]) {
+                continue;
+            }
+
             buffer
                 .write_all(buffer.available_write(), |buf| self.serial.read(buf))
-                .map_err(|_| SerProgError::ReadFail)?;
+                .map_err(|_| anyhow!("USB serial read error"))?;
 
             let n = buffer.available_read();
 
             match buffer.read(n, Command::parse) {
                 // Loop and get more data if incomplete
                 Err(nom::Err::Incomplete(_)) => (),
-                Err(_) => break Err(SerProgError::ReadFail),
+                Err(_) => bail!("Failed to read error"),
                 Ok((bytes_left, cmd)) => {
                     let bytes_parsed = n - bytes_left.len();
                     break Ok((bytes_parsed, cmd));
@@ -101,7 +95,7 @@ where
         }
     }
 
-    fn handle_command(&mut self, cmd: Command) -> Result<ResponsePacket, SerProgError> {
+    fn handle_command(&mut self, cmd: Command) -> Result<ResponsePacket> {
         match cmd {
             Command::Nop => Ok(ResponsePacket::Nop),
             Command::QIface => self.handle_q_iface(),
@@ -123,39 +117,35 @@ where
         }
     }
 
-    fn handle_q_op_buf(&self) -> Result<ResponsePacket, SerProgError> {
+    fn handle_q_op_buf(&self) -> Result<ResponsePacket> {
         Ok(ResponsePacket::QOpBuf {
             size: self.op_buf.len().try_into().unwrap(),
         })
     }
 
-    fn handle_q_wrn_max_len(&self) -> Result<ResponsePacket, SerProgError> {
+    fn handle_q_wrn_max_len(&self) -> Result<ResponsePacket> {
         Ok(ResponsePacket::QWrnMaxLen {
             size: self.ser_buf.len().try_into().unwrap(),
         })
     }
 
-    fn handle_q_chip_size(&self) -> Result<ResponsePacket, SerProgError> {
+    fn handle_q_chip_size(&self) -> Result<ResponsePacket> {
         // TODO
-        Err(SerProgError::NotImplemented {
-            opcode: OpCode::QChipSize,
-        })
+        bail!("QChipSize is not implemented")
     }
 
-    fn handle_r_byte(&self, _address: Address) -> Result<ResponsePacket, SerProgError> {
+    fn handle_r_byte(&self, _address: Address) -> Result<ResponsePacket> {
         // TODO
-        Err(SerProgError::NotImplemented {
-            opcode: OpCode::RByte,
-        })
+        bail!("RByte not implemented")
     }
 
-    fn handle_q_iface(&mut self) -> Result<ResponsePacket, SerProgError> {
+    fn handle_q_iface(&mut self) -> Result<ResponsePacket> {
         Ok(ResponsePacket::QIface {
             iface_version: I_FACE_VERSION,
         })
     }
 
-    fn handle_q_cmd_map(&mut self) -> Result<ResponsePacket, SerProgError> {
+    fn handle_q_cmd_map(&mut self) -> Result<ResponsePacket> {
         let cmd_map: [u8; 32] = {
             let mut cmd_map: [u8; 32] = [0; 32];
             cmd_map.copy_from_slice(&CMD_MAP.to_le_bytes());
@@ -165,7 +155,7 @@ where
         Ok(ResponsePacket::QCmdMap { cmd_map })
     }
 
-    fn handle_q_pgm_name(&mut self) -> Result<ResponsePacket, SerProgError> {
+    fn handle_q_pgm_name(&mut self) -> Result<ResponsePacket> {
         let pgm_name: [u8; 16] = {
             let mut pgm_name: [u8; 16] = [0; 16];
             pgm_name[0..PGM_NAME.len()].copy_from_slice(PGM_NAME.as_bytes());
@@ -175,24 +165,24 @@ where
         Ok(ResponsePacket::QPgmName { pgm_name })
     }
 
-    fn handle_q_serbuf(&mut self) -> Result<ResponsePacket, SerProgError> {
+    fn handle_q_serbuf(&mut self) -> Result<ResponsePacket> {
         // Pretend to be 64k
         Ok(ResponsePacket::QSerBuf {
             size: self.ser_buf.len().try_into().unwrap(),
         })
     }
 
-    fn handle_q_bus_type(&mut self) -> Result<ResponsePacket, SerProgError> {
+    fn handle_q_bus_type(&mut self) -> Result<ResponsePacket> {
         Ok(ResponsePacket::QBusType {
             bus_type: BusType::SPI,
         })
     }
 
-    fn handle_sync_nop(&mut self) -> Result<ResponsePacket, SerProgError> {
+    fn handle_sync_nop(&mut self) -> Result<ResponsePacket> {
         Ok(ResponsePacket::SyncNop)
     }
 
-    fn handle_s_bus_type(&mut self, &bustype: &BusType) -> Result<ResponsePacket, SerProgError> {
+    fn handle_s_bus_type(&mut self, &bustype: &BusType) -> Result<ResponsePacket> {
         let res = match bustype {
             BusType::SPI => ResponseType::Ack,
             _ => ResponseType::Nak,
@@ -205,17 +195,13 @@ where
         &mut self,
         rlen: usize,
         tx_data: Buffer<S>,
-    ) -> Result<ResponsePacket, SerProgError> {
+    ) -> Result<ResponsePacket> {
         let rx_buffer = Buffer::new([0u8; MAX_BUFFER_SIZE]);
         let (rx_buffer, _tx_buffer, spi) = self
             .spi_manager
             .take()
-            // FIXME: Use the right errors
-            .ok_or(SerProgError::WriteFail)
-            .and_then(|spi| {
-                spi.read_write(rx_buffer, tx_data)
-                    .map_err(|_| SerProgError::WriteFail)
-            })?;
+            .ok_or(anyhow!("No SPI manager configured"))
+            .and_then(|spi| spi.read_write(rx_buffer, tx_data))?;
 
         self.spi_manager = Some(spi);
 
@@ -226,7 +212,7 @@ where
         })
     }
 
-    fn handle_s_spi_freq(&mut self, freq: Hertz) -> Result<ResponsePacket, SerProgError> {
+    fn handle_s_spi_freq(&mut self, freq: Hertz) -> Result<ResponsePacket> {
         // Implement SSpiFreq
         if freq == Hz(0) {
             Ok(ResponsePacket::SSpiFreq {

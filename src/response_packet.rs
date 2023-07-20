@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use stm32f1xx_hal::time::Hertz;
 
 use crate::{buffer::Buffer, prelude::*};
@@ -51,15 +52,16 @@ pub enum ResponsePacket {
 impl ResponsePacket {
     pub const MAX_SIZE: usize = 33;
 
-    pub fn to_bytes(&self, buf: &mut [u8]) -> Result<usize, DataError> {
+    pub fn to_bytes(&self, buf: &mut [u8]) -> Result<usize> {
         let packet_size = self.packet_size();
         let buf_size = buf.len();
 
         if buf_size < packet_size {
-            return Err(DataError::BufferTooSmall {
+            return Err(anyhow!(
+                "Buffer too small for packet - Got {} while {} was required",
                 buf_size,
-                required: packet_size,
-            });
+                packet_size
+            ));
         }
 
         match self {

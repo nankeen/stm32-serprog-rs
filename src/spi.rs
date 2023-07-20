@@ -3,17 +3,20 @@ use core::{
     marker::PhantomData,
 };
 
+use anyhow::anyhow;
 use embedded_hal::spi::{Mode, Phase, Polarity};
 use stm32f1xx_hal::{
-    dma::dma1::{C4, C5},
+    dma::{
+        dma1::{C4, C5},
+        ReadWriteDma,
+    },
     pac::SPI2,
-    prelude::_stm32_hal_dma_ReadWriteDma,
     rcc::Clocks,
     spi::{Master, Pins, Remap, Spi, SpiRxTxDma},
     time::Hertz,
 };
 
-use crate::{buffer::Buffer, prelude::SpiError};
+use crate::{buffer::Buffer, prelude::*};
 
 const SPI_MODE: Mode = Mode {
     polarity: Polarity::IdleLow,
@@ -133,7 +136,7 @@ where
         self,
         rx_buffer: Buffer<RX>,
         tx_buffer: Buffer<TX>,
-    ) -> Result<(Buffer<RX>, Buffer<TX>, Self), SpiError>
+    ) -> Result<(Buffer<RX>, Buffer<TX>, Self)>
     where
         RX: BorrowMut<[u8]>,
         TX: Borrow<[u8]>,
@@ -156,7 +159,7 @@ where
                     }),
                 ))
             }
-            _ => Err(SpiError::NotEnabled),
+            Self::Disabled(_) => Err(anyhow!("SPI disabled - cannot read/write")),
         }
     }
 }
