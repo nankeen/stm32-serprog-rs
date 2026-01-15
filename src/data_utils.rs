@@ -61,6 +61,9 @@ pub enum ResponsePacket {
         res: ResponseType,
         set_freq: u32,
     },
+    SPinState {
+        res: ResponseType,
+    },
 }
 
 impl ResponsePacket {
@@ -126,6 +129,9 @@ impl ResponsePacket {
                     }
                 }
             }
+            ResponsePacket::SPinState { res } => {
+                buf[0] = *res as u8;
+            }
         }
 
         Ok(packet_size)
@@ -143,6 +149,7 @@ impl ResponsePacket {
             ResponsePacket::SBusType { .. } => 1,
             ResponsePacket::SpiOp { rlen, .. } => rlen + 1,
             ResponsePacket::SSpiFreq { .. } => 5,
+            ResponsePacket::SPinState { .. } => 1,
         }
     }
 }

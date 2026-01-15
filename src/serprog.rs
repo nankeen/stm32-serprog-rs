@@ -1,10 +1,11 @@
 use crate::{
     data_utils::{
-        OpCode, ResponsePacket, ResponseType, CMD_MAP, I_FACE_VERSION, PGM_NAME, SUPPORTED_BUS,
+        OpCode, ResponsePacket, ResponseType, CMD_MAP, I_FACE_VERSION, MAX_BUFFER_SIZE, PGM_NAME,
+        SUPPORTED_BUS,
     },
     spi::SpiManager,
 };
-use embedded_hal::{digital::v2::OutputPin, serial::Read};
+use embedded_hal::serial::Read;
 use snafu::Snafu;
 use stm32f1xx_hal::{afio::MAPR, gpio::gpioa::CRL, rcc::APB2, time::U32Ext};
 use usb_device::{bus::UsbBus, prelude::UsbDevice};
@@ -103,6 +104,7 @@ where
             OpCode::SBusType => self.handle_s_bus_type(),
             OpCode::OSpiOp => self.handle_o_spi_op(),
             OpCode::SSpiFreq => self.handle_s_spi_freq(mapr, crl, apb),
+            OpCode::SPinState => self.handle_s_pin_state(mapr, crl, apb),
             opcode => Err(SerProgError::NotImplemented { opcode }),
         }
     }
@@ -163,10 +165,46 @@ where
     }
 
     fn handle_o_spi_op(&mut self) -> Result<ResponsePacket, SerProgError> {
-        // TODO: Implement OSpiOp
-        Err(SerProgError::NotImplemented {
-            opcode: OpCode::OSpiOp,
-        })
+        // Read slen (3 bytes, little-endian)
+        let slen = self.read_u24_as_u32() as usize;
+
+        // Read rlen (3 bytes, little-endian)
+        let rlen = self.read_u24_as_u32() as usize;
+
+        // Validate buffer constraints
+        if slen > MAX_BUFFER_SIZE || rlen > MAX_BUFFER_SIZE {
+            return Ok(ResponsePacket::SpiOp {
+                res: ResponseType::Nak,
+                rlen: 0,
+                data: [0; MAX_BUFFER_SIZE],
+            });
+        }
+
+        // Read write data into temporary buffer
+        let mut write_buf = [0u8; MAX_BUFFER_SIZE];
+        for i in 0..slen {
+            write_buf[i] = self.read_u8();
+        }
+
+        // Prepare read buffer
+        let mut read_buf = [0u8; MAX_BUFFER_SIZE];
+
+        // Perform SPI transfer with CS control
+        match self
+            .spi_manager
+            .transfer_with_cs(&write_buf[..slen], &mut read_buf[..rlen])
+        {
+            Ok(()) => Ok(ResponsePacket::SpiOp {
+                res: ResponseType::Ack,
+                rlen,
+                data: read_buf,
+            }),
+            Err(()) => Ok(ResponsePacket::SpiOp {
+                res: ResponseType::Nak,
+                rlen: 0,
+                data: [0; MAX_BUFFER_SIZE],
+            }),
+        }
     }
 
     fn handle_s_spi_freq(
@@ -191,13 +229,28 @@ where
         }
     }
 
-    fn spi_select(&mut self) {
-        // TODO
-        // self.spi_cs.set_low().unwrap();
-    }
+    fn handle_s_pin_state(
+        &mut self,
+        mapr: &mut MAPR,
+        crl: &mut CRL,
+        apb: &mut APB2,
+    ) -> Result<ResponsePacket, SerProgError> {
+        let pin_state = self.read_u8();
 
-    fn spi_unselect(&mut self) {
-        // TODO
-        // self.spi_cs.set_high().unwrap();
+        if pin_state == 0 {
+            // Disable pin drivers
+            self.spi_manager.disable(crl);
+        } else {
+            // Enable pin drivers if currently disabled
+            if self.spi_manager.is_disabled() {
+                // Use the stored last_freq
+                let freq = self.spi_manager.last_freq;
+                self.spi_manager.enable(freq, mapr, crl, apb);
+            }
+        }
+
+        Ok(ResponsePacket::SPinState {
+            res: ResponseType::Ack,
+        })
     }
 }

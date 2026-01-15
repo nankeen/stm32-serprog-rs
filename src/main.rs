@@ -11,14 +11,7 @@ use cortex_m_rt::entry; // The runtime
 use data_utils::OpCode;
 use embedded_hal::digital::v2::OutputPin;
 use serprog::SerProg;
-use stm32f1xx_hal::{
-    afio::MAPR,
-    gpio::gpioa::CRL,
-    pac,
-    prelude::*,
-    rcc::APB2,
-    usb::{Peripheral, UsbBus},
-};
+use stm32f1xx_hal::{pac, prelude::*, usb::{Peripheral, UsbBus}};
 use usb_device::prelude::{UsbDeviceBuilder, UsbVidPid};
 use usbd_serial::{SerialPort, USB_CLASS_CDC};
 

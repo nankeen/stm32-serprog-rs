@@ -1,4 +1,8 @@
-use embedded_hal::spi::{Mode, Phase, Polarity};
+use embedded_hal::{
+    blocking::spi::{Transfer, Write},
+    digital::v2::OutputPin,
+    spi::{Mode, Phase, Polarity},
+};
 use stm32f1xx_hal::{
     afio::MAPR,
     gpio::gpioa::{CRL, PA4, PA5, PA6, PA7},
@@ -6,7 +10,7 @@ use stm32f1xx_hal::{
     pac::SPI1,
     rcc::{Clocks, APB2},
     spi::{Spi, Spi1NoRemap},
-    time::Hertz,
+    time::{Hertz, U32Ext},
 };
 
 const SPI_MODE: Mode = Mode {
@@ -45,6 +49,7 @@ pub(crate) struct SpiManager {
     disabled: Option<SpiDisabled>,
     enabled: Option<SpiEnabled>,
     clocks: Clocks,
+    pub(crate) last_freq: Hertz,
 }
 
 impl SpiManager {
@@ -66,6 +71,7 @@ impl SpiManager {
                 spi,
             }),
             clocks,
+            last_freq: 1_000_000_u32.hz(),
         }
     }
 
@@ -80,6 +86,10 @@ impl SpiManager {
                 spi,
             });
         }
+    }
+
+    pub(crate) fn is_disabled(&self) -> bool {
+        self.disabled.is_some()
     }
 
     pub(crate) fn enable<F>(&mut self, freq: F, mapr: &mut MAPR, crl: &mut CRL, apb: &mut APB2)
@@ -112,46 +122,60 @@ impl SpiManager {
     where
         F: Into<Hertz>,
     {
-        // TODO: Implement configure
-        /*
-        match self.enabled.take() {
-            Some(SpiEnabled { cs, spi }) => {
-            }
-            None => {
-                self.enabled = self.
-            }
-        }
-        match self.spi_hal.take() {
-            None => {
-                self.enable(freq, mapr, crl, apb);
-            }
-            Some(spi_hal) => {
-                let (spi1, pins) = spi_hal.release();
-                self.spi_hal = Some(Spi::spi1(
-                    spi1,
-                    pins,
-                    mapr,
-                    SPI_MODE,
-                    freq,
-                    self.clocks,
-                    apb,
-                ));
-            }
-        }
-            match self {
-                Self::SpiDisabled { .. } => {
-                    //
-                },
-                Self::SpiEnabled { spi, cs, clocks } => {
-                    let (spi1, pins) = spi.release();
-                    core::mem::replace(self, Self::SpiEnabled {
-                        cs: *cs, spi: Spi::spi1(spi1, pins, mapr, SPI_MODE, freq, *clocks, apb), clocks: *clocks
-                    });
-                    /*
+        let freq = freq.into();
+        self.last_freq = freq;
 
-                    */
+        if self.enabled.is_some() {
+            // If already enabled, reconfigure by disable then enable
+            self.disable(crl);
+            self.enable(freq, mapr, crl, apb);
+        } else {
+            // If disabled, just enable with new frequency
+            self.enable(freq, mapr, crl, apb);
+        }
+    }
+
+    /// Performs an SPI transfer with CS control: write then read
+    pub(crate) fn transfer_with_cs(
+        &mut self,
+        write_data: &[u8],
+        read_buffer: &mut [u8],
+    ) -> Result<(), ()> {
+        if let Some(SpiEnabled { cs, spi }) = &mut self.enabled {
+            // Assert CS low
+            cs.set_low().map_err(|_| ())?;
+
+            // Write phase: send write_data
+            if !write_data.is_empty() {
+                if let Err(_) = spi.write(write_data) {
+                    // Deassert CS on error
+                    let _ = cs.set_high();
+                    return Err(());
                 }
             }
-        */
+
+            // Read phase: transfer dummy 0xFF bytes into read_buffer
+            if !read_buffer.is_empty() {
+                // Fill read buffer with dummy data (0xFF)
+                for byte in read_buffer.iter_mut() {
+                    *byte = 0xff;
+                }
+
+                // Perform transfer (sends 0xFF, receives actual data)
+                if let Err(_) = spi.transfer(read_buffer) {
+                    // Deassert CS on error
+                    let _ = cs.set_high();
+                    return Err(());
+                }
+            }
+
+            // Deassert CS high
+            cs.set_high().map_err(|_| ())?;
+
+            Ok(())
+        } else {
+            // SPI not enabled
+            Err(())
+        }
     }
 }
